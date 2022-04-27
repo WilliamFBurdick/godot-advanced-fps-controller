@@ -26,7 +26,7 @@ export var ground_acceleration = 5
 export var air_acceration = 2
 
 export var stand_height : float = 2
-export var crouch_height : float = 1
+export var crouch_height : float = 0.5
 export var height_adjust_speed : float = 5
 
 var snap_vector : Vector3 = Vector3()
@@ -59,7 +59,7 @@ func _process(delta):
 		gravity_vector = Vector3.UP * jump_speed
 	
 	if Input.is_action_just_pressed("jump") and !is_on_floor() and current_state != move_state.diving:
-		begin_dive(delta, input_vector)
+		begin_dive(delta)
 	
 	if Input.is_action_just_pressed("crouch") and is_on_floor() and (current_state == move_state.walking or current_state == move_state.crouching):
 		toggle_crouch(delta)
@@ -142,14 +142,14 @@ func begin_slide(delta):
 	target_height = crouch_height
 	current_state = move_state.sliding
 
-#Begins the player's dive, sets the height to crouch height and the state to diving.
-func begin_dive(delta, input_vector):
+#Begins the player's dive, sets the height to crouch height and the state to diving.  Initializes the dive_vector to either shoot the player forward if they aren't moving, or in the direction they're moving already.
+func begin_dive(delta):
 	target_height = crouch_height
 	snap_vector = Vector3.ZERO
 	gravity_vector = Vector3.UP * jump_speed
 	var dive_direction = self.global_transform.basis.z.normalized()
-	if input_vector.length() > 0:
-		dive_direction = get_direction_vector(input_vector)
+	if movement_vector.length() > 0:
+		dive_direction = movement_vector.normalized()
 	dive_vector = dive_direction * dive_speed
 	current_state = move_state.diving
 
@@ -172,7 +172,7 @@ func can_sprint():
 
 #Checks if the player is walking and not standing still
 func can_slide():
-	if current_state == move_state.walking and movement_vector.length() > 0:
+	if (current_state == move_state.walking or current_state == move_state.sprinting) and movement_vector.length() > 0:
 		return true
 	else:
 		return false
@@ -186,12 +186,12 @@ func can_jump():
 
 #Checks if the player can stand by shooting a raycast upwards, if already standing/sprinting just returns true
 func can_stand():
-	if current_state != move_state.crouching or current_state != move_state.sliding:
+	if current_state == move_state.walking or current_state == move_state.sprinting:
 		return true
 	else:
 		var space_state = get_world().direct_space_state
-		var collision = space_state.intersect_ray(global_transform.origin, global_transform.origin + Vector3.UP * (stand_height / 2), [self])
-		return collision.size <= 0
+		var collision = space_state.intersect_ray(global_transform.origin, global_transform.origin + Vector3.UP * (stand_height * 2), [self])
+		return collision.size() <= 0
 
 #Checks if player is on ground, returns acceleration.  Takes 1 override, if player wants to ignore acceleration.
 func get_acceleration(ignore : bool = false):
