@@ -16,6 +16,7 @@ export var jump_speed = 10
 export var walk_speed = 20
 export var sprint_speed = 40
 export var crouch_speed = 12
+export var slide_input_speed = 5
 export var slide_speed = 25
 
 export var ground_acceleration = 5
@@ -28,6 +29,7 @@ export var height_adjust_speed : float = 5
 var snap_vector : Vector3 = Vector3()
 var movement_vector : Vector3 = Vector3()
 var gravity_vector : Vector3 = Vector3()
+var slide_vector : Vector3 = Vector3()
 onready var current_height : float = stand_height
 var target_height : float = stand_height
 var current_state = move_state.walking
@@ -54,13 +56,37 @@ func _process(delta):
 	if Input.is_action_just_pressed("crouch") and is_on_floor() and (current_state == move_state.walking or current_state == move_state.crouching):
 		toggle_crouch(delta)
 	
+	if Input.is_action_just_pressed("sprint") and can_sprint():
+		current_state = move_state.sprinting
+	
+	if Input.is_action_just_pressed("crouch") and current_state == move_state.sprinting:
+		begin_slide(delta)
+	
 	adjust_height(delta)
+	resolve_current_state(delta)
 
 func _physics_process(delta):
 	apply_motion(delta)
 
 func apply_motion(delta):
-	move_and_slide_with_snap(movement_vector + gravity_vector, snap_vector, Vector3.UP)
+	slide_vector = slide_vector.linear_interpolate(Vector3.ZERO, delta)
+	var final_movement_vector = movement_vector + gravity_vector + slide_vector
+	move_and_slide_with_snap(final_movement_vector, snap_vector, Vector3.UP)
+
+func resolve_current_state(delta):
+	if slide_vector.length() <= crouch_speed:
+		slide_vector = Vector3.ZERO
+		if current_state == move_state.sliding:
+			slide_vector = Vector3.ZERO
+			current_state = move_state.crouching
+	elif current_state == move_state.sliding and !is_on_floor():
+		slide_vector /= 2
+		current_state = move_state.walking
+	
+	if (current_state == move_state.walking or current_state == move_state.sprinting):
+		target_height = stand_height
+	elif (current_state == move_state.crouching or current_state == move_state.sliding):
+		target_height = crouch_height
 
 #If player is on the ground, grabs the horizontal movement and changes the movement vector.
 func ground_move(delta, inputs : Vector2):
@@ -95,6 +121,11 @@ func adjust_height(delta):
 		player_collision.translation.y = current_height
 		camera_arm.translation.y = current_height * 2 - 0.4
 
+func begin_slide(delta):
+	slide_vector = movement_vector.normalized() * slide_speed
+	target_height = crouch_height
+	current_state = move_state.sliding
+
 #Toggles the player's crouch state and sets target height
 func toggle_crouch(delta):
 	if current_state == move_state.walking:
@@ -104,10 +135,24 @@ func toggle_crouch(delta):
 		if can_stand():
 			target_height = stand_height
 			current_state = move_state.walking
-			
+
+#Checks if the player can sprint (is on the floor and walking)
+func can_sprint():
+	if current_state == move_state.walking and is_on_floor():
+		return true
+	else:
+		return false
+
+#Checks if the player is walking and not standing still
+func can_slide():
+	if current_state == move_state.walking and movement_vector.length() > 0:
+		return true
+	else:
+		return false
+
 #Checks if the player is in a movement state that's capable of jumping and on the floor
 func can_jump():
-	if is_on_floor() and (current_state == move_state.walking or current_state == move_state.spriting):
+	if is_on_floor() and (current_state == move_state.walking or current_state == move_state.sprinting):
 		return true
 	else:
 		return false
@@ -141,19 +186,14 @@ func get_speed():
 			return sprint_speed
 		move_state.sliding:
 			#get vector going down slope if on slope
-			return slide_speed
+			return slide_input_speed
 		_:
 			print("ERROR: Could not match movement state!")
 			return walk_speed
 
 #Takes input vector and returns vector relative to player's direction (unless sliding down hill then will return vector facing down slope)
 func get_direction_vector(input_vector):
-	var vector = Vector3()
-	if current_state == move_state.sliding:
-		vector = self.get_floor_normal.cross(self.get_floor_normal.cross(Vector3.UP))
-	if vector == Vector3.ZERO:
-		vector = (self.global_transform.basis.x * input_vector.x) + (self.global_transform.basis.z * input_vector.y)
-	return vector
+	return (self.global_transform.basis.x * input_vector.x) + (self.global_transform.basis.z * input_vector.y)
 
 
 func _input(event):
