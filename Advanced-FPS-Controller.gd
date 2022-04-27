@@ -5,6 +5,7 @@ enum move_state {
 	crouching,
 	sliding,
 	sprinting,
+	diving,
 }
 
 export var mouse_sensitivity = 0.05
@@ -17,7 +18,9 @@ export var walk_speed = 20
 export var sprint_speed = 40
 export var crouch_speed = 12
 export var slide_input_speed = 5
-export var slide_speed = 25
+export var slide_speed = 40
+export var dive_speed = 20
+export var dive_input_speed = 5
 
 export var ground_acceleration = 5
 export var air_acceration = 2
@@ -30,6 +33,8 @@ var snap_vector : Vector3 = Vector3()
 var movement_vector : Vector3 = Vector3()
 var gravity_vector : Vector3 = Vector3()
 var slide_vector : Vector3 = Vector3()
+var dive_vector : Vector3 = Vector3()
+
 onready var current_height : float = stand_height
 var target_height : float = stand_height
 var current_state = move_state.walking
@@ -53,6 +58,9 @@ func _process(delta):
 		snap_vector = Vector3.ZERO
 		gravity_vector = Vector3.UP * jump_speed
 	
+	if Input.is_action_just_pressed("jump") and !is_on_floor() and current_state != move_state.diving:
+		begin_dive(delta, input_vector)
+	
 	if Input.is_action_just_pressed("crouch") and is_on_floor() and (current_state == move_state.walking or current_state == move_state.crouching):
 		toggle_crouch(delta)
 	
@@ -70,7 +78,10 @@ func _physics_process(delta):
 
 func apply_motion(delta):
 	slide_vector = slide_vector.linear_interpolate(Vector3.ZERO, delta)
-	var final_movement_vector = movement_vector + gravity_vector + slide_vector
+	dive_vector = dive_vector.linear_interpolate(Vector3.ZERO, delta)
+	var final_movement_vector = movement_vector + gravity_vector + slide_vector + dive_vector
+	#if current_state == move_state.sliding:
+	#	snap_vector = Vector3.ZERO
 	move_and_slide_with_snap(final_movement_vector, snap_vector, Vector3.UP)
 
 func resolve_current_state(delta):
@@ -82,6 +93,10 @@ func resolve_current_state(delta):
 	elif current_state == move_state.sliding and !is_on_floor():
 		slide_vector /= 2
 		current_state = move_state.walking
+	
+	if current_state == move_state.diving and is_on_floor():
+		dive_vector = Vector3.ZERO
+		current_state = move_state.crouching
 	
 	if (current_state == move_state.walking or current_state == move_state.sprinting):
 		target_height = stand_height
@@ -121,10 +136,22 @@ func adjust_height(delta):
 		player_collision.translation.y = current_height
 		camera_arm.translation.y = current_height * 2 - 0.4
 
+#Begins the player's slide, sets the slide vector to slide_speed distance in direction player is moving and sets target height to crouch height
 func begin_slide(delta):
 	slide_vector = movement_vector.normalized() * slide_speed
 	target_height = crouch_height
 	current_state = move_state.sliding
+
+#Begins the player's dive, sets the height to crouch height and the state to diving.
+func begin_dive(delta, input_vector):
+	target_height = crouch_height
+	snap_vector = Vector3.ZERO
+	gravity_vector = Vector3.UP * jump_speed
+	var dive_direction = self.global_transform.basis.z.normalized()
+	if input_vector.length() > 0:
+		dive_direction = get_direction_vector(input_vector)
+	dive_vector = dive_direction * dive_speed
+	current_state = move_state.diving
 
 #Toggles the player's crouch state and sets target height
 func toggle_crouch(delta):
@@ -187,6 +214,8 @@ func get_speed():
 		move_state.sliding:
 			#get vector going down slope if on slope
 			return slide_input_speed
+		move_state.diving:
+			return dive_input_speed
 		_:
 			print("ERROR: Could not match movement state!")
 			return walk_speed
